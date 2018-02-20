@@ -7,7 +7,7 @@ import logging
 from socket import gethostbyname, gaierror
 from json import loads, dumps
 from re import search
-from requests import get, post, put, ConnectionError
+from requests import get, post, put, delete, ConnectionError, Timeout
 from requests.auth import HTTPBasicAuth
 
 
@@ -692,13 +692,615 @@ def reset_device_id_and_restart(ws_info, robot_address):
             headers=headers,
             data=dumps(data)
         )
-        logging.debug('The response from callback _reset_device_id_and_restart was %s', response.text)
+        logging.debug(
+            'The response from callback _reset_device_id_and_restart was %s',
+            response.text
+        )
         if response.status_code == 200:
             result = True
         else:
-            logging.error('Failed to reset device id and restart for robot %s', robot_address)
+            logging.error(
+                'Failed to reset device id and restart for robot %s',
+                robot_address
+            )
 
     except ConnectionError:
         logging.exception('Failed to callback _reset_device_id_and_restart API')
 
     return result
+
+
+def push_pkg(ws_info, ade, package, hub, robot):
+    '''Pushes package to robot
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/probe-calls#ProbeCalls-InvokeCallback
+
+    Args:
+        ws_info (dict) containing
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        ade (string) UIM address of the robot with the ADE probe
+        package (string) name of package to deploy
+        hub (string) name of hub the robot target belongs to
+        robot (string) name of robot to deliver the package to
+
+    Returns:
+        True if job initiated successfully, False otherwise
+    '''
+    robot_address = '/' + ws_info['domain'] + '/' + hub + '/' + robot
+    url = ws_info['url'] + '/probe' + ade \
+        + '/automated_deployment_engine/callback/deploy_probe'
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    data = {
+        'parameters': [
+            {'name': 'robot', 'type': 'string', 'value': ''},
+            {'name': 'package', 'type': 'string', 'value': ''}
+        ]
+    }
+    data['parameters'][0]['value'] = robot_address
+    data['parameters'][1]['value'] = package
+
+    result = False
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['password']
+            ),
+            verify=False,
+            headers=headers,
+            data=dumps(data)
+        )
+        logging.debug('The ADE package deploy response %s', response.text)
+        if response.status_code == 200:
+            result = True
+        else:
+            logging.error(
+                'Failed to make deploy probe call for package %s to robot %s',
+                package,
+                robot
+            )
+    except ConnectionError:
+        logging.exception('Failed to call deploy probe API callback')
+
+    return result
+
+
+def create_contact(ws_info, contact_data):
+    '''    Use the CA UIM Web Services cauim_ws to create a new contact based on contact_data
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/contact-calls#ContactCalls-CreateaNewContact
+
+    Args:
+        ws_info (list) of CA UIM Web Services location and credentials
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        contact_data (list) of account contact information
+            accountId (integer) account id as retrieved from the UIM database
+            acl (string) UIM account contact ACL
+            loginName (string) user login name
+            firstName (string) user first name
+            lastName (string) user last name
+            email (string) address for the user
+            password (string) user password for account contact user
+
+
+    Returns:
+        Contact ID of the user created or None on failure
+    '''
+
+    url = ws_info['url'] + '/contacts'
+    headers = {
+        'content-type': 'application/json',
+        'accept': 'application/json'}
+
+    contact_id = None
+    try:
+        response = post(
+            url, 
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            verify=False,
+            headers=headers,
+            data=dumps(contact_data)
+        )
+
+        if response.status_code == 200:
+            json_returned = loads(response.text)
+            contact_id = json_returned['contactId']
+        else:
+            logging.warning(
+                'Unable to create contact %s, failed with status code %s',
+                contact_data['loginName'],
+                response.status_code
+            )
+
+    except ConnectionError:
+        logging.exception('Failed to call API to create contact %s', contact_data['loginName'])
+    except KeyError:
+        logging.exception('No contact id was returned for creation of %s', contact_data['loginName'])
+
+    return contact_id
+
+
+def remove_mm_schedule(ws_info, schedule_id, uim_ws_mm_probe):
+    '''Deletes a UIM maintenance schedule
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/maintenance-calls#MaintenanceCalls-DeleteaSchedule
+
+    Args:
+        ws_info (list) of CA UIM Web Services location and credentials
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        schedule_id (integer as string) id of the schedule to remove
+        uim_ws_mm_probe (string) http path to maintenance mode probe
+
+    Returns:
+        Nothing
+    '''
+
+    try:
+        mm_del_schedule_url = uim_ws_mm_probe + '/delete_schedule/' + schedule_id
+        mm_del_resp = delete(
+            mm_del_schedule_url,
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            verify=False,
+            timeout=30
+        )
+        if mm_del_resp.status_code == 204:
+            logging.info('Successfully deleted schedule id: %s', schedule_id)
+        else:
+            logging.error(
+                'Failed to delete schedule. URL called was %s status code was %s',
+                mm_del_schedule_url,
+                mm_del_resp.status_code
+            )
+
+    except ConnectionError:
+        logging.exception('Failed to call delete schedule API.')
+    except Timeout:
+        logging.exception('Timed out waiting for delete maintenance schedule')
+
+    return
+
+
+def create_group(ws_info, pgrp_id, grp_name, grp_desc, grp_type):
+    '''Create a group using the UIM web services API
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/group-resource-calls#GroupResourceCalls-CreateaStaticGroup
+
+    Args:
+        ws_info (list) of CA UIM Web Services location and credentials
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        pgrp_id (integer) group id of the parent to the new group
+        grp_name (string) name of the new group
+        grp_desc (string) description for the new group
+        grp_type (integer) either a dynamic, static (0) or container group
+
+    Returns:
+        If successful the group id for the new group
+        If unsucessful None is returned
+    '''
+
+    grp_id = None
+    url = ws_info['url'] + '/group'
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    data = {}
+    data['groupType'] = str(grp_type)
+    data['parentGroupId'] = str(pgrp_id)
+    data['groupName'] = grp_name
+    if grp_desc is None or grp_desc == "":
+        data['desc'] = grp_name
+    else:
+        data['desc'] = grp_desc
+
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            verify=False,
+            headers=headers,
+            data=dumps(data)
+        )
+
+        logging.debug(
+            'The response from the group creation was %s',
+            response.text
+        )
+        if response.status_code == 200:
+            json_resp = loads(response.text)
+            grp_id = json_resp['groupId']
+            logging.info(
+                'Successfully created group %s with group id %s',
+                grp_name,
+                grp_id
+            )
+        else:
+            logging.error(
+                'Failed to connect to UIM API to create group with status code %s',
+                response.status_code
+            )
+    except ConnectionError:
+        logging.exception(
+            'Failed to call the UIM API to create the group %s',
+            grp_name
+        )
+
+    return grp_id
+
+
+def add_grp_member(ws_info, grp_id, new_mem):
+    '''Adds a new member to the group with id specified
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/group-resource-calls#GroupResourceCalls-AddGroupMembers
+
+    Args:
+        ws_info (list) of CA UIM Web Services location and credentials
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        grp_id (integer) id of the group we are adding the member to
+        new_mem (integer) cs_id of the new member to add
+
+    Returns:
+        True if successful
+        False if it fails
+    '''
+
+    logging.info('Adding %s to group %s', new_mem, grp_id)
+    url = ws_info['url'] + '/group/members/' + str(grp_id)
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'}
+    data = {}
+    data['cs'] = new_mem
+
+    result = False
+
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            verify=False,
+            headers=headers,
+            data=dumps(data)
+        )
+
+        logging.debug(
+            'The response from the add group members was %s',
+            response.text
+        )
+        if response.status_code == 204:
+            logging.info(
+                'Successfully added members to groupid %s', 
+                grp_id
+            )
+            result = True
+        else:
+            logging.error(
+                'Failed to connect to UIM API to add members to group %s, status code %s',
+                grp_id,
+                response.status_code
+        )
+
+    except ConnectionError:
+        logging.exception(
+            'Failed to connect to UIM API to add device %s to group id %s',
+            new_mem,
+            grp_id
+    )
+
+    return result
+
+
+def group_exists(ws_info, grp_name):
+    """Check if the group with a name already exists
+
+    Args:
+        ws_info (list) of CA UIM Web Services location and credentials
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        grp_name (string) name of the group we are checking if exists
+
+    Returns:
+        If the group exists the group id
+        If the group does not exists or other failure None
+    """
+
+    url = ws_info['url'] + '/group/' + grp_name + '/exists'
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'}
+    grp_id = None
+    try:
+        response = get(
+            url,
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            verify=False,
+            headers=headers
+        )
+
+        logging.debug(
+            'The response from the group exists by name was %s',
+            response.text
+        )
+        if response.status_code == 200:
+            data = loads(response.text)
+            grp_id = data['group']['groupId']
+            logging.info(
+                'Successfully got the group id for %s by name as %s',
+                grp_name,
+                grp_id
+            )
+        else:
+            logging.warning(
+                'Failed to check if group %s exists. Response code was %s',
+                grp_name,
+                response.status_code
+            )
+    except ConnectionError:
+        logging.exception('Group exists API call failure with URL %s', url)
+
+    return grp_id
+
+
+def os_info(ws_info, hub, robot):
+    '''Returns robot minor OS
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/probe-calls#ProbeCalls-InvokeCallback
+
+    Args:
+        ws_info (dict) containing
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        hub (string) name of hub the robot target belongs to
+        robot (string) name of robot to deliver the package to
+
+    Returns:
+        Robot OS e.g. Windows or Linux
+    '''
+    robot_address = '/' + ws_info['domain'] + '/' + hub + '/' + robot
+    url = ws_info['url'] + '/probe' + robot_address \
+        + '/controller/callback/os_info'
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+
+    data = {}
+    oper_sys = None
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['password']
+            ),
+            verify=False,
+            headers=headers,
+            data=dumps(data)
+        )
+        logging.debug('The os_info response %s', response.text)
+        if response.status_code == 200:
+            results = loads(response.text)
+            oper_sys = results['entry'][0]['value']['$']
+        else:
+            logging.error('Failed to make os_info call for %s', robot_address)
+    except ConnectionError:
+        logging.exception('Failed to call os_info probe API callback')
+
+    return oper_sys
+
+def is_process_running(ws_info, hub, robot, process):
+    '''Returns true if process is running on robot
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/probe-calls#ProbeCalls-InvokeCallback
+
+    Args:
+        ws_info (dict) containing
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        hub (string) name of hub the robot target belongs to
+        robot (string) name of robot to deliver the package to
+        process (string) name of process to search for
+
+    Returns:
+        True if process is found, False otherwise
+    '''
+    robot_address = '/' + ws_info['domain'] + '/' + hub + '/' + robot
+    url = ws_info['url'] + '/probe' + robot_address \
+        + '/processes/callback/list_processes'
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+
+    data = {
+        'parameters': [
+            {'name': 'proc', 'type': 'string', 'value': ''}
+        ]
+    }
+    data['parameters'][0]['value'] = process
+    running = False
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['password']
+            ),
+            verify=False,
+            headers=headers,
+            data=dumps(data)
+        )
+        logging.debug('The list_processes response %s', response.text)
+        if response.status_code == 200:
+            if process in response.text:
+                running = True
+        else:
+            logging.error('Failed to make list_processes call for %s', robot_address)
+    except ConnectionError:
+        logging.exception('Failed to call list_processes probe API callback')
+
+    return running
+
+
+def set_custom(ws_info, nimid, attr):
+    '''Set custom_2..5 in the UIM alarm
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/alarm-calls#AlarmCalls-CreateaCustomAlarmProperty
+
+    Args:
+        ws_info (dict) containing
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        nimid (string) alarm id from UIM console or DB
+        attr (dict) of alarm_property
+            custom_1..5 (string) acts as the key each with a value to populate
+    Returns:
+        True if successful, False if fails    
+    '''
+    headers = {
+        'content-type': 'application/json',
+        'accept': 'application/json'
+    }
+    url = ws_info['url'] + '/alarms/' + nimid + '/set_custom_property'
+
+    result = False
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['password']
+            ),
+            verify=False,
+            headers=headers,
+            data=dumps(attr)
+        )
+        logging.debug('The response from set_custom_property was %s', response.text)
+        if response.status_code == 204:
+            result = True
+
+    except ConnectionError:
+        logging.exception('Failed to call set_custom_property')
+
+    return result
+
+def assign_alarm(ws_info, nimid, assignee):
+    '''Assign alarm
+ 
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/alarm-calls#AlarmCalls-UpdateanAlarm(Assign)
+
+    Args:
+        ws_info (dict) containing
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        nimid (string) alarm id from UIM console or DB
+        assignee (string) user id assigning alarm to
+
+    Returns:
+        True if successful, False if fails
+
+    '''
+    headers = {
+        'content-type': 'application/json',
+        'accept': 'application/json'
+    }
+    url = ws_info['url'] + '/alarms/' + nimid + '/assign/' + assignee
+
+    result = False
+    try:
+        response = put(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['password']
+            ),
+            verify=False,
+            headers=headers
+        )
+        if response.status_code == 204:
+            result = True
+
+    except ConnectionError:
+        logging.exception('Failed to call assign')
+
+    return result
+
+
+def add_group_account(ws_info, grp_id, acc_id):
+    """Adds a UIM account to the group specified as grp_id
+
+    Args:
+        ws_info (dict) containing
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        grp_id (string) containing the UIM group id
+        acc_id (integer) containing the UIM account to assign to the group
+    Returns:
+        Nothing
+    """
+    url = ws_info['url'] + '/group/accounts/' + grp_id
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+
+    data = {"groupAccount": [1]}
+    data['groupAccount'][0] = acc_id
+
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['passwd']
+            ),
+            verify=False,
+            headers=headers,
+            data=dumps(data)
+        )
+        logging.debug('The status code from the group account update %s', response.status_code)
+        if response.status_code == 204:
+            logging.debug(
+                'Successfully updated group %s with account %s',
+                grp_id,
+                acc_id
+            )
+        else:
+            logging.warning(
+                'Failed to update group %s with account %s',
+                grp_id,
+                acc_id
+            )
+    except ConnectionError:
+        logging.exception('Connection error to UIM REST API')
