@@ -806,7 +806,7 @@ def create_contact(ws_info, contact_data):
     try:
         response = post(
             url, 
-            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['password']),
             verify=False,
             headers=headers,
             data=dumps(contact_data)
@@ -852,7 +852,7 @@ def remove_mm_schedule(ws_info, schedule_id, uim_ws_mm_probe):
         mm_del_schedule_url = uim_ws_mm_probe + '/delete_schedule/' + schedule_id
         mm_del_resp = delete(
             mm_del_schedule_url,
-            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['password']),
             verify=False,
             timeout=30
         )
@@ -912,7 +912,7 @@ def create_group(ws_info, pgrp_id, grp_name, grp_desc, grp_type):
     try:
         response = post(
             url,
-            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['password']),
             verify=False,
             headers=headers,
             data=dumps(data)
@@ -976,7 +976,7 @@ def add_grp_member(ws_info, grp_id, new_mem):
     try:
         response = post(
             url,
-            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['password']),
             verify=False,
             headers=headers,
             data=dumps(data)
@@ -1033,7 +1033,7 @@ def group_exists(ws_info, grp_name):
     try:
         response = get(
             url,
-            auth=HTTPBasicAuth(ws_info['user'], ws_info['passwd']),
+            auth=HTTPBasicAuth(ws_info['user'], ws_info['password']),
             verify=False,
             headers=headers
         )
@@ -1256,7 +1256,7 @@ def assign_alarm(ws_info, nimid, assignee):
 
 
 def add_group_account(ws_info, grp_id, acc_id):
-    """Adds a UIM account to the group specified as grp_id
+    '''Adds a UIM account to the group specified as grp_id
 
     Args:
         ws_info (dict) containing
@@ -1268,14 +1268,14 @@ def add_group_account(ws_info, grp_id, acc_id):
         acc_id (integer) containing the UIM account to assign to the group
     Returns:
         Nothing
-    """
+    '''
     url = ws_info['url'] + '/group/accounts/' + grp_id
     headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json'
     }
 
-    data = {"groupAccount": [1]}
+    data = {'groupAccount': [1]}
     data['groupAccount'][0] = acc_id
 
     try:
@@ -1283,7 +1283,7 @@ def add_group_account(ws_info, grp_id, acc_id):
             url,
             auth=HTTPBasicAuth(
                 ws_info['user'],
-                ws_info['passwd']
+                ws_info['password']
             ),
             verify=False,
             headers=headers,
@@ -1304,3 +1304,162 @@ def add_group_account(ws_info, grp_id, acc_id):
             )
     except ConnectionError:
         logging.exception('Connection error to UIM REST API')
+
+
+def create_mm_schedule(ws_info, name, desc, start, duration, t_zone):
+    '''Creates a maintenance mode schedule
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/maintenance-calls#MaintenanceCalls-CreateaSchedule
+
+    Args:
+        ws_info (dict) containing
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+            pri_hub (string) UIM primary hub name (case sensitive)
+            mm_robot (string) name of robot hosting maintenance_mode probe (case sensitive)
+        name (string) schedule name
+        desc (string) schedule description
+        start (datetime)
+        duration (integer) in hours
+        t_zone (string) timezone to use
+        acc_id (integer) the account id from UIM
+
+    Returns:
+        schedule_id if successful
+        None on failure
+    '''
+    schedule = {}
+    schedule['name'] = name
+    schedule['description'] = desc
+    schedule['start_date_time'] = {}
+    schedule['start_date_time']['year'] = start.strftime('%Y')
+    schedule['start_date_time']['month'] = start.strftime('%m')
+    schedule['start_date_time']['day'] = start.strftime('%d')
+    schedule['start_date_time']['timestamp'] = {}
+    schedule['start_date_time']['timestamp']['hours'] = start.strftime('%H')
+    schedule['start_date_time']['timestamp']['minutes'] = start.strftime('%M')
+    schedule['start_date_time']['timestamp']['seconds'] = start.strftime('%S')
+    schedule['end_time'] = {}
+    schedule['end_time']['type'] = 'duration'
+    schedule['end_time']['end_date_time'] = {}
+    schedule['end_time']['end_date_time']['month'] = ''
+    schedule['end_time']['end_date_time']['day'] = ''
+    schedule['end_time']['end_date_time']['year'] = ''
+    schedule['end_time']['end_date_time']['timestamp'] = {}
+    schedule['end_time']['end_date_time']['timestamp']['hours'] = ''
+    schedule['end_time']['end_date_time']['timestamp']['minutes'] = ''
+    schedule['end_time']['end_date_time']['timestamp']['seconds'] = ''
+    schedule['end_time']['duration'] = {}
+    schedule['end_time']['duration']['hours'] = str(duration)
+    schedule['end_time']['duration']['minutes'] = ''
+    schedule['end_time']['duration']['seconds'] = ''
+    schedule['account_id'] = ''
+    schedule['recurrence_pattern'] = ''
+    schedule['recurrence_period'] = ''
+    schedule['recurrence_days_of_the_week'] = ''
+    schedule['recurrence_day_of_the_month'] = ''
+    schedule['recurrence_instance'] = ''
+    schedule['recurrence_end_date_time']= {}
+    schedule['recurrence_end_date_time']['month'] = ''
+    schedule['recurrence_end_date_time']['day'] = ''
+    schedule['recurrence_end_date_time']['year'] = ''
+    schedule['recurrence_end_date_time']['timestamp'] = {}
+    schedule['recurrence_end_date_time']['timestamp']['hours'] = ''
+    schedule['recurrence_end_date_time']['timestamp']['minutes'] = ''
+    schedule['recurrence_end_date_time']['timestamp']['seconds'] = ''
+    schedule['timezone'] = t_zone
+
+    url = ws_info['url'] + '/maintenance_mode/' + ws_info['domain'] + '/' + \
+          ws_info['pri_hub'] + '/' + ws_info['mm_robot'] + '/add_schedule'
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+        
+    schedule_id = None
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['password']
+            ),
+            verify=False,
+            headers=headers,
+            data=dumps(schedule)
+        )
+        logging.debug('The status code from the create mm schedule call was %s', response.status_code)
+        if response.status_code == 200:
+            logging.debug('Successfully created maintenance schedule %s', name)
+            results = loads(response.text)
+            schedule_id = results['schedule_id']
+        else:
+            logging.warning('Failed to create maintenance schedule %s', name)
+    except ConnectionError:
+        logging.exception('Connection error to UIM REST API for maintenance schedule creation')
+
+    except Timeout:
+        logging.exception('Timeout error creating maintenance schedule')
+
+    return schedule_id
+
+
+def add_cs_to_mm_schedule(ws_info, schedule_id, cs_ids):
+    '''Add computer systems to a maintenance mode schedule
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/maintenance-calls#MaintenanceCalls-AddComputerSystemstoaSchedule
+
+    Args:
+        ws_info (dict) containing
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+            pri_hub (string) UIM primary hub name (case sensitive)
+            mm_robot (string) name of robot hosting maintenance_mode probe (case sensitive)
+        schedule_id (integer) schedule id of the maintenance schedule
+        cs_id (list of strings) the cs_id of the devices to put in maintenance mode
+
+    Returns:
+        True if successful
+        False on failure
+    '''
+    url = ws_info['url'] + '/maintenance_mode/' + ws_info['domain'] + '/' + \
+          ws_info['pri_hub'] + '/' + ws_info['mm_robot'] + '/add_computer_systems_to_schedule/' + \
+          str(schedule_id)
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    data = {}
+    data['cs'] = cs_ids
+    logging.debug('List of systems to put in maintenance mode %s', data)
+        
+    result = False
+    try:
+        response = post(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['password']
+            ),
+            verify=False,
+            headers=headers,
+            data=dumps(data)
+        )
+        logging.debug('The status code from the add computers to mm schedule call was %s', response.status_code)
+        if response.status_code == 204:
+            logging.debug('Successfully added computers to maintenance schedule %s', schedule_id)
+            result = True
+        else:
+            logging.warning('Failed to add computers to maintenance schedule %s', schedule_id)
+    except ConnectionError:
+        logging.exception('Connection error to UIM REST API to add computers to maintenance schedule')
+
+    except Timeout:
+        logging.exception('Timeout error to add computers to maintenance schedule')
+
+    return result
+
