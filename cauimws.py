@@ -1463,3 +1463,74 @@ def add_cs_to_mm_schedule(ws_info, schedule_id, cs_ids):
 
     return result
 
+
+def create_alarm(ws_info, source, ss_id, supp_key, level, msg):
+    '''Generates an alarm from source with ss_id, supp_key and severity (level)
+
+    API Link: https://docops.ca.com/ca-unified-infrastructure-management-probes/ga/en/probe-development-tools/restful-web-services/call-reference/alarm-calls#AlarmCalls-CreateanAlarm
+
+    Args:
+        ws_info (dict) UIM web services connection information
+            user (string) UIM user with web service access
+            password (string) UIM user password
+            url (string) UIM REST API URL
+            domain (string) UIM domain name
+        source (string) impacted configuration item of alarm
+        ss_id (string) UIM alarm subsystem id
+        supp_key (string) UIM alarm suppression key
+        level (string) UIM alarm level
+        msg (string) text of the new alarm
+
+    Returns:
+        True if successful, False if it failed
+    '''
+
+    url = ws_info['url'] + '/alarms/createAlarm'
+    headers = {
+        'content-type': 'application/json',
+        'accept': 'application/json'
+    }
+
+    severity = {
+        'clear': '0',
+        'info': '1',
+        'warning': '2',
+        'minor': '3',
+        'major': '4',
+        'critical': '5'
+    }
+
+    data = {}
+    data['level'] = severity[level]
+    data['message'] = msg
+    data['source'] = source
+    data['subsystemId'] = ss_id
+    data['suppressionKey'] = supp_key
+    data['severity'] = level
+    result = False
+
+    try:
+        resp = post(
+            url,
+            auth=HTTPBasicAuth(
+                ws_info['user'],
+                ws_info['password']
+            ),
+            verify=False,
+            timeout=30,
+            headers=headers,
+            data=dumps(data)
+        )
+        logging.debug('The response from the createAlarm API was %s', resp.status_code)
+        if resp.status_code == 204:
+            result = True
+
+    except ConnectionError:
+        logging.exception(
+            'Failed to call createAlarm API for source %s with msg %s',
+            source, msg
+        )
+    except Timeout:
+        logging.exception('Timeout error to add computers to maintenance schedule')
+
+    return result
